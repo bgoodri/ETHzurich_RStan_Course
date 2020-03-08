@@ -36,12 +36,14 @@ knit_hooks$set(small.mar = function(before, options, envir) {
   $\$5,000.00$ per year from a private company is required to disclose these facts in presentations
 
 ```{r, echo = FALSE, message = FALSE, fig.height=3, fig.width=10, include = TRUE}
+library(ggplot2)
+library(dplyr)
 pp2 <- cranlogs::cran_downloads(c("bayesm", "LaplacesDemon", "MCMCpack",
                                   "rjags", "R2jags", "runjags", "rstan"),
                                 from = "2015-07-01", to = Sys.Date())
 pp2$package <- ifelse(pp2$package %in% c("rjags", "R2jags", "runjags"),
                       "JAGS_related", pp2$package)
-library(ggplot2)
+pp2 <- group_by(pp2, date, package) %>% summarize(count = sum(count))
 ggplot(pp2, aes(x = date, y = count, color = package)) +
   geom_smooth(show.legend = TRUE, se = FALSE) +
   labs(x = 'Date', y = 'Downloads from RStudio Mirror') + 
