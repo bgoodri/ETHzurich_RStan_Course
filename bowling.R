@@ -1,8 +1,8 @@
 # computes the x-th Fibonacci number without recursion and with vectorization
 F <- function(x) {
   stopifnot(is.numeric(x), all(x == as.integer(x)))
-  sqrt_5 <- sqrt(5) # defined once, used twice
-  golden_ratio <- (1 + sqrt_5) / 2
+  sqrt_5 <- sqrt(5)
+  golden_ratio <- 0.5 * (1 + sqrt_5)
   return(round(golden_ratio ^ (x + 1) / sqrt_5))
 }
 # probability of knocking down x out of n pins

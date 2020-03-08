@@ -112,8 +112,8 @@ $\mathcal{F}\left(1\right)=1$, and otherwise $\mathcal{F}\left(x\right)=\mathcal
 ```{r, FandPr}
 # computes the x-th Fibonacci number without recursion and with vectorization
 F <- function(x) {
-  sqrt_5 <- sqrt(5) # defined once, used twice
-  golden_ratio <- (1 + sqrt_5) / 2
+  sqrt_5 <- sqrt(5)
+  golden_ratio <- 0.5 * (1 + sqrt_5)
   return(round(golden_ratio ^ (x + 1) / sqrt_5))
 }
 # probability of knocking down x out of n pins
@@ -186,7 +186,7 @@ for (x1 in Omega) { # already created by source("bowling.R")
 sum(joint_Pr) # that sums to 1
 ```
 
-## `joint_Pr`: Row is roll 1, Column is roll 2 {.smaller}
+## `joint_Pr`: row index is roll 1; column is roll 2 {.smaller}
 
 ```{r, size='footnotesize', echo = FALSE, message = FALSE}
 library(kableExtra)
@@ -271,7 +271,7 @@ $$\Pr\left(\left.A\right|B\right)= \frac{\Pr\left(A\right) \times \Pr\left(\left
 $$\Pr\left(A\right) = \lim_{S\uparrow\infty} 
 \frac{\mbox{times that } A \mbox{ occurs in } S \mbox{ independent randomizations}}{S}$$
 
-## $\Pr\left(x_1 \mid x_2\right)$: Row is roll 1, Column is roll 2 {.smaller}
+## $\Pr\left(x_1 \mid x_2\right)$: row index is roll 1; column is roll 2 {.smaller}
 
 ```{r, size='footnotesize', echo = FALSE, message = FALSE}
 library(kableExtra)
@@ -386,8 +386,9 @@ g\left(x\right)f\left(x\right)dx$
 
 ## Continuous Bowling {.build}
 
-- What if you could knock down any REAL number of pins on $\Omega = \left[0,10\right]$?
-```{r, echo = FALSE, fig.height=5, fig.width=10}
+What if you could knock down any REAL number of pins on $\Omega = \left[0,10\right]$?
+
+```{r, echo = FALSE, fig.height=5, fig.width=10, include = FALSE}
 Fib <- function(x) {
   sqrt_5 <- sqrt(5)
   golden_ratio <- (1 + sqrt_5) / 2
@@ -435,11 +436,26 @@ arrows(x0 = pi, y0 = 0, y1 = pi, col = 4)
 text(x = pi, y = 0, labels = "Condition", col = "blue", pos = 2)
 ```
 
+```{r, webgl = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
+bivariate <- function(x1, x2) {
+  out <- mapply(function(x1, x2) f(x1, n = 10) * f(x2, n = 10 - x1), x1, x2)
+  out[out == Inf] <- 10
+  return(log(out))
+}
+
+library(rgl)
+persp3d(bivariate, xlim = c(0,10), ylim = c(0,10), alpha = 0.75, axes = TRUE,
+        xlab = "First Roll", ylab = "Second Roll", zlab = "Log-Density", col = rainbow)
+legend3d(x = "right", legend = c("low", rep(NA, 8), "high"), pch = 20, col = rainbow(10),
+         cex = 1, title = "Log-Density", box.lwd = NA)
+rglwidget()
+```
+
 ## Conditioning on Knocking Down $X_2 = \pi$ Pins
 
 ```{r, small.mar = TRUE, fig.height = 4.25, fig.width=10}
 curve(f(x1) * f(x = pi, n = 10 - x1), from = 0, to = 10 - pi, axes = FALSE, type = "p",
-      pch = 20, n = 1001, xname = "x1", col = heat.colors(1001), ylab = "Conditional Density")
+      pch = 20, n = 1001, xname = "x1", col = rainbow(1001), ylab = "Conditional Density")
 axis(1, at = 0:7, las = 1); axis(2, at = 0, las = 1); abline(v = 0)
 ```
 
@@ -510,6 +526,8 @@ axis(1, at = c(0, 0.25, 0.5, 0.75, 1), las = 1)
 axis(2, at = c(0, round(quantiles[1], digits = 2), m, round(quantiles[3], digits = 2), 1))
 segments(x0 = c(0.25, 0.5, 0.75), y0 = -1, y1 = quantiles, lty = "dotted", col = "red")
 segments(x0 = -1, y0 = quantiles, x1 = c(0.25, 0.5, 0.75), lty = "dotted", col = "red")
+legend("topleft", legend = "GLD_icdf(m, r, a, s)", lty = 1, col = 1, 
+       bg = "lightgrey", box.lwd = NA)
 ```
 
 ## Matching a Prior Predictive Distribution
