@@ -15,3 +15,18 @@ If you encounter any issues before (or after) the course, please ask at
 http://discourse.mc-stan.org/
 
 and someone will be able to help you.
+
+# Reading
+
+Before the class, please read chapter 1 of the second edition of _Statistical Rethinking_ by Richard McElreath
+
+http://xcelab.net/rmpubs/sr2/statisticalrethinking2_chapters1and2.pdf
+
+The rest of the book is available to pre-order from
+
+https://www.crcpress.com/Statistical-Rethinking-A-Bayesian-Course-with-Examples-in-R-and-STAN/McElreath/p/book/9780367139919
+
+In addition, there is a great video on Bayes' Rule by Grant Sanderson
+
+https://t.co/5GBieRzt4O?amp=1
+
