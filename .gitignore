@@ -1,0 +1,5 @@
+*.rds
+*.html
+*_cache/
+*_files/
+

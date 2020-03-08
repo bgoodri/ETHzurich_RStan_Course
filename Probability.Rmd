@@ -1,0 +1,588 @@
+---
+title: Utilizing Probability from a Bayesian Perspective
+author: Ben Goodrich
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+autosize: true
+header-includes:
+   - \usepackage{amsmath}
+   - \usepackage{color}
+output:
+  ioslides_presentation:
+    widescreen: true
+editor_options: 
+  chunk_output_type: console
+---
+<style type="text/css">
+slides > slide:not(.nobackground):after {
+  content: '';
+}
+</style>
+
+```{r, setup, include = FALSE}
+options(width = 90)
+library(knitr)
+knit_hooks$set(small.mar = function(before, options, envir) {
+    if (before) par(mar = c(4, 4, .1, .1), las = 1)  # smaller margin on top and right
+})
+```
+
+## Obligatory Disclosure {.build}
+
+* Ben is an employee of Columbia University, which has received several research grants to develop Stan
+* Ben is also a manager of GG Statistics LLC, which uses Stan for business
+* According to Columbia University 
+  [policy](https://research.columbia.edu/content/conflict-interest-and-research), any such employee who 
+  has any equity stake in, a title (such as officer or director) with, or is expected to earn at least 
+  $\$5,000.00$ per year from a private company is required to disclose these facts in presentations
+
+```{r, echo = FALSE, message = FALSE, fig.height=3, fig.width=10, include = TRUE}
+pp2 <- cranlogs::cran_downloads(c("bayesm", "LaplacesDemon", "MCMCpack",
+                                  "rjags", "R2jags", "runjags", "rstan"),
+                                from = "2015-07-01", to = Sys.Date())
+pp2$package <- ifelse(pp2$package %in% c("rjags", "R2jags", "runjags"),
+                      "JAGS_related", pp2$package)
+library(ggplot2)
+ggplot(pp2, aes(x = date, y = count, color = package)) +
+  geom_smooth(show.legend = TRUE, se = FALSE) +
+  labs(x = 'Date', y = 'Downloads from RStudio Mirror') + 
+  bayesplot::legend_move("top")
+```
+
+## What Is Stan?
+
+* Includes a high-level [probabilistic programming 
+language](https://en.wikipedia.org/wiki/Probabilistic_programming_language)
+* Includes a translator of high-level Stan syntax to somewhat low-level C++
+* Includes a matrix and scalar math library that supports autodifferentiation
+* Includes new (and old) gradient-based algorithms for statistical inference, 
+  such as NUTS for Bayesian analysis
+* Includes interfaces from R and other high-level software
+* Includes R packages with pre-written Stan programs
+* Includes (not Stan specific) post-estimation R functions
+* Includes a large community of users and many developers
+
+> - Stan builds on many other libraries, such as Boost, Eigen, SUNDIALS,
+  Thread Buiding Blocks, OpenCL, plus their corresponding R packages and Rcpp
+
+## Goals for Course
+
+> - This morning: Learn about probability from a Bayesian perspective
+> - This afternoon: Learn how to do (not so) basic regression modeling via Stan
+> - Tomorrow morning: Learn how to do advanced regression modeling via Stan
+> - Tomorrow afternoon: Learn how to write and test Stan programs, so that
+  you can then embed them in R packages for others to use
+
+## Sets and Sample Space
+
+- A set is a collection of intervals and / or isolated elements
+- One often-used set is the set of real numbers, $\mathbb{R}$
+- Often negative numbers are excluded from a set; e.g. $\mathbb{R}_{+}$
+- Integers are a subset of $\mathbb{R}$, denoted $\mathbb{Z}$, where
+the decimal places are $.000\dots$.
+
+> - The sample space, denoted $\Omega$, is the set of all possible outcomes of an observable random variable
+
+> - Suppose you roll a six-sided die. What is $\Omega$?
+> - Do not conflate a REALIZATION of a random variable with the FUNCTION that generated it
+> - By convention, a capital letter, $X$, indicates a random variable
+and its lower-case counterpart, $x$, indicates a realization of $X$
+
+## A Frame of Bowling
+
+Each frame in bowling starts with $n=10$ pins & you get up to 2 rolls per frame
+```{r, echo = FALSE}
+vembedr::embed_url("https://youtu.be/HeiNrSllyzA?t=05")
+```
+
+## Approaching Bowling Probabilistically
+
+> - What is $\Omega$ for your first roll of a frame of bowling?
+> - [Hohn (2009)](https://digitalcommons.wku.edu/cgi/viewcontent.cgi?article=1084&context=theses) 
+  discusses a few distributions for the probability of knocking down $X\geq 0$ out of $n\geq X$ pins, including $\Pr\left(\left.x\right|n\right)=\frac{\mathcal{F}\left(x\right)}{-1 + \mathcal{F}\left(n+2\right)}$
+where $\mathcal{F}\left(x\right)$ is the $x$-th Fibonacci number, i.e. $\mathcal{F}\left(0\right)=1$,
+$\mathcal{F}\left(1\right)=1$, and otherwise $\mathcal{F}\left(x\right)=\mathcal{F}\left(x-1\right)+\mathcal{F}\left(x-2\right)$. The $\mid$ is
+  read as "given".
+> - First 13 Fibonacci numbers are 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, and 233
+> - Sum of the first 11 Fibonacci numbers is 232
+
+## `source("bowling.R")` for this Code Chunk {.build}
+
+```{r, FandPr}
+# computes the x-th Fibonacci number without recursion and with vectorization
+F <- function(x) {
+  sqrt_5 <- sqrt(5) # defined once, used twice
+  golden_ratio <- (1 + sqrt_5) / 2
+  return(round(golden_ratio ^ (x + 1) / sqrt_5))
+}
+# probability of knocking down x out of n pins
+Pr <- function(x, n = 10) return( ifelse(x > n, 0, F(x)) / (-1 + F(n + 2)) )
+
+Omega <- 0:10 # 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+names(Omega) <- as.character(Omega)
+round(c(Pr(Omega), total = sum(Pr(Omega))), digits = 4)
+
+x <- sample(Omega, size = 1, prob = Pr(Omega)) # realization of random variable
+```
+
+## Second Roll in a Frame of Bowling
+
+> - How would you compute the probability of knocking down all the remaining pins on 
+  your second roll?
+> - Let $X_{1}$ and $X_{2}$ respectively be the number of pins knocked down on 
+  the first and second rolls of a frame of bowling. What function yields the
+  probability of knocking down $x_2$ pins on your second roll?
+
+> - $\Pr\left(\left.x_{2}\right|n = 10 - x_1\right)=\frac{\mathcal{F}\left(x_{2}\right)}{-1 + \mathcal{F}\left(10-x_{1}+2\right)}\times\mathbb{I}\left\{ x_{2}\leq10-x_{1}\right\}$
+> - $\mathbb{I}\left\{ \cdot\right\}$ is an "indicator function" that equals $1$ if it is true and $0$ if it is false
+> - $\Pr\left(\left.x_{2}\right|n = 10 - x_1\right)$ is a CONDITIONAL probability that depends on the
+  realization of $x_1$
+
+## From [Aristotelian Logic](https://en.wikipedia.org/wiki/Boolean_algebra) to Bivariate Probability
+
+- In R, `TRUE` maps to $1$ and `FALSE` maps to $0$ when doing arithmetic operations
+```{r, AND}
+c(TRUE * TRUE, TRUE * FALSE, FALSE * FALSE)
+```
+- Can generalize to probabilities on the $[0,1]$ interval to compute the probability
+  that two (or more) propositions are true simultaneously
+- $\bigcap$ reads as "and". __General Multiplication Rule__: $\Pr\left(A\bigcap B\right)=\Pr\left(B\right)\times\Pr\left(\left.A\right|B\right)=\Pr\left(A\right)\times\Pr\left(\left.B\right|A\right)$
+  
+## Independence
+
+- Loosely, $A$ and $B$ are independent propositions if $A$ being true or false tells
+  us nothing about the probability that $B$ is true (and vice versa)
+- Formally, $A$ and $B$ are independent iff $\Pr\left(\left.A\right|B\right)=\Pr\left(A\right)$
+  (and $\Pr\left(\left.B\right|A\right)=\Pr\left(B\right)$). Thus, 
+  $\Pr\left(A\bigcap B\right)=\Pr\left(A\right)\times\Pr\left(B\right)$.
+- Why is it reasonable to think
+    - Two rolls in the same frame are not independent?
+    - Two rolls in different frames are independent?
+    - Rolls by two different people are independent regardless of whether they are in the same frame?
+
+> - What is the probability of obtaining a turkey (3 consecutive strikes)?
+> - What is the probability of knocking down $9$ pins on the first roll and $1$ pin 
+  on the second roll?
+  
+## Joint Probability of Two Rolls in Bowling
+
+- How to obtain the joint probability, $\Pr\left(\left.x_{1}\bigcap x_{2}\right|n=10\right)$, in general?
+
+$$\begin{eqnarray*}
+\Pr\left(\left.x_{1}\bigcap x_{2}\right|n=10\right) & = & \Pr\left(\left.x_{1}\right|n=10\right)\times\Pr\left(\left.x_{2}\right|n = 10 - x_1\right)\\
+ & = & \frac{\mathcal{F}\left(x_{1}\right) \times \mathcal{F}\left(x_{2}\right) \times \mathbb{I}\left\{ x_{2}\leq10-x_{1}\right\}}{\left(-1+\mathcal{F}\left(10+2\right)\right)\times
+ \left(-1 + \mathcal{F}\left(10-x_{1}+2\right)\right)}
+\end{eqnarray*}$$
+
+```{r, joint}
+joint_Pr <- matrix(0, nrow = length(Omega), ncol = length(Omega))
+rownames(joint_Pr) <- colnames(joint_Pr) <- as.character(Omega)
+for (x1 in Omega) { # already created by source("bowling.R")
+  Pr_x1 <- Pr(x1, n = 10)
+  for (x2 in 0:(10 - x1))
+    joint_Pr[x1 + 1, x2 + 1] <- Pr_x1 * Pr(x2, n = 10 - x1)
+}
+sum(joint_Pr) # that sums to 1
+```
+
+## `joint_Pr`: Row is roll 1, Column is roll 2 {.smaller}
+
+```{r, size='footnotesize', echo = FALSE, message = FALSE}
+library(kableExtra)
+library(dplyr)
+options("kableExtra.html.bsTable" = TRUE)
+options(scipen = 5)
+tmp <- as.data.frame(joint_Pr)
+for (i in 1:ncol(tmp)) 
+  tmp[,i] <- cell_spec(round(tmp[,i], digits = 6), "html", bold = tmp[,i] == 0,
+                       color = ifelse(tmp[,i] == 0, "red", "black"))
+kable(tmp, digits = 5, align = 'c', escape = FALSE) %>%
+    kable_styling("striped", full_width = FALSE)
+```
+
+## Aristotelian Logic to Probability of Alternatives
+
+```{r, OR}
+c(TRUE + FALSE, FALSE + FALSE)
+```
+
+- What is the probability that between this frame and the next one, you do not get two strikes?
+
+> - Can generalize Aristotelian logic to probabilities on the $[0,1]$ interval to compute the probability
+  that one of two (or more) propositions is true
+> - $\bigcup$ is read as "or". __General Addition Rule__: $\Pr\left(A\bigcup B\right)=\Pr\left(A\right)+\Pr\left(B\right)-\Pr\left(A\bigcap B\right)$
+> - If $\Pr\left(A\bigcap B\right) = 0$, $A$ and $B$ are mutually exclusive (disjoint)
+> - What is the probability of knocking down 9 pins on the second roll irrespective of the first roll?
+
+## Marginal Distribution of Second Roll in Bowling
+
+- How to obtain $\Pr\left(x_{2}\right)$ irrespective of $x_{1}$?
+- Since events in the first roll are mutually exclusive, use the simplified
+form of the General Addition Rule to "marginalize":
+$$\begin{eqnarray*}
+\Pr\left(x_{2}\right) & = & 
+\sum_{x = 0}^{10}\Pr\left(\left.X_1 = x\bigcap X_2 = x_{2}\right|n=10\right)\\
+ & = & \sum_{x = 0}^{10}
+ \Pr\left(\left.x\right|n=10\right) \times \Pr\left(\left.x_{2}\right|n = 10 - x\right)
+\end{eqnarray*}$$
+```{r, marginal, size='footnotesize', comment=NA}
+round(rbind(Pr_X1 = Pr(Omega), margin1 = rowSums(joint_Pr), margin2 = colSums(joint_Pr)), 4)
+```
+
+
+## Marginal, Conditional, and Joint Probabilities
+
+> - To compose a joint (in this case bivariate) probability, MULTIPLY a marginal probability by
+  a conditional probability
+> - To decompose a joint (in this case bivariate) probability, ADD the relevant joint probabilities
+  to obtain a marginal probability
+> - To obtain a conditional probability, DIVIDE the joint probability by the marginal probability 
+  of the event that you want to condition on because
+$$\Pr\left(A\bigcap B\right)=\Pr\left(B\right)\times\Pr\left(\left.A\right|B\right)=\Pr\left(A\right)\times\Pr\left(\left.B\right|A\right) \implies$$
+$$\Pr\left(\left.A\right|B\right)= \frac{\Pr\left(A\right)\times\Pr\left(\left.B\right|A\right)}{\Pr\left(B\right)} \mbox{ if } \Pr\left(B\right) > 0$$
+> - This is Bayes' Rule  
+> - What is an expression for $\Pr\left(\left.X_1 = 3\right|X_2 = 4\right)$ in bowling?
+
+## Conditioning on $X_2 = 4$ in Bowling {.smaller}
+
+```{r, size='footnotesize', echo = FALSE}
+tmp <- as.data.frame(joint_Pr)
+for (i in 1:ncol(tmp)) 
+  tmp[,i] <- cell_spec(round(tmp[,i], digits = 6), "html", bold = tmp[,i] == 0,
+                       color = ifelse(tmp[,i] == 0, "red", 
+                                      ifelse(i == 5, "black", "blue")))
+kable(tmp, digits = 5, align = 'c', escape = FALSE) %>%
+    kable_styling("striped", full_width = FALSE)
+```
+
+## Example of Bayes' Rule
+
+```{r}
+joint_Pr["3", "4"] / sum(joint_Pr[ , "4"])
+```
+- Bayesians generalize this by taking $A$ to be "beliefs about whatever you do not know" and 
+  $B$ to be whatever you do know in 
+$$\Pr\left(\left.A\right|B\right)= \frac{\Pr\left(A\right) \times \Pr\left(\left.B\right|A\right)}{\Pr\left(B\right)}
+\mbox{ if } \Pr\left(B\right) > 0$$
+- Frequentists accept the validity Bayes' Rule but object to using the language of probability to describe 
+  beliefs about unknown propositions and insist that probability is a property of a process 
+  that can be defined as a limit
+$$\Pr\left(A\right) = \lim_{S\uparrow\infty} 
+\frac{\mbox{times that } A \mbox{ occurs in } S \mbox{ independent randomizations}}{S}$$
+
+## $\Pr\left(x_1 \mid x_2\right)$: Row is roll 1, Column is roll 2 {.smaller}
+
+```{r, size='footnotesize', echo = FALSE, message = FALSE}
+library(kableExtra)
+library(dplyr)
+options("kableExtra.html.bsTable" = TRUE)
+options(scipen = 5)
+tmp <- as.data.frame(sweep(joint_Pr, MARGIN = 2, STATS = colSums(joint_Pr), FUN = `/`))
+for (i in 1:ncol(tmp)) 
+  tmp[,i] <- cell_spec(round(tmp[,i], digits = 6), "html", bold = tmp[,i] == 0,
+                       color = ifelse(tmp[,i] == 0, "red", "purple"))
+kable(tmp, digits = 5, align = 'c', escape = FALSE) %>%
+    kable_styling("striped", full_width = FALSE)
+```
+
+## Probability that a Huge Odd Integer is Prime
+
+> - John Cook [asks](https://www.johndcook.com/blog/2010/10/06/probability-a-number-is-prime/)
+  an interesting question: What is the probability $x$ is prime, where $x$ is a huge, odd integer
+  like $1 + 10^{100000000}$?
+    
+> - To Frequentists, $x$ is not a random variable. It is either prime or composite and it makes no
+  sense to say that it is "probably (not) prime"
+> - To Bayesians, $x$ is either prime or composite but no one knows for sure whether it is prime.
+  But the probability that $x$ is prime goes up each time you divide it by a prime number
+  and find that it has a non-zero remainder
+> - The prime number theorem implies provides a way to choose the prior probability that
+  $x$ is prime based on its number of digits $\left(d\right)$
+$$\Pr\left(x \mbox{ is prime}\right) = \frac{1}{d \ln 10} \approx \frac{4}{10^{10}}$$
+  although you could double that merely by taking into account that $x$ is odd
+
+## Probability and Cumulative Mass Functions
+
+- $\Pr\left(\left.x\right|\boldsymbol{\theta}\right)$ is a Probability Mass Function (PMF) 
+over a discrete $\Omega$ that may depend on some parameter(s) $\boldsymbol{\theta}$ and the 
+Cumulative Mass Function (CMF) is 
+$\Pr\left(\left.X\leq x\right|\boldsymbol{\theta}\right)=\sum\limits_{i = \min\{\Omega\}}^x \Pr\left(\left.i\right|\boldsymbol{\theta}\right)$
+- In our model for bowling without parameters, 
+$\Pr\left(X\leq x\right) = \frac{ -1 + \mathcal{F}\left(x+2\right)}{- 1 + \mathcal{F}\left(n+2\right)}$
+```{r}
+CMF <- function(x, n = 10) return( (-1 + F(x + 2)) / (-1 + F(n + 2)) )
+round(CMF(Omega), digits = 5)
+```
+- How do we know this CMF corresponds to our PMF 
+$\Pr\left(\left.x\right|n\right) = \frac{\mathcal{F}\left(x\right)}{- 1 + \mathcal{F}\left(n+2\right)}$?
+
+## PMF is the Rate of Change in the CMF
+
+```{r, echo=FALSE, fig.height=6,fig.width=9}
+par(mar = c(5,4,0.5,0.5) + .1, las = 1)
+cols <- rainbow(11)
+x <- barplot(CMF(Omega), xlab = "Number of pins", ylab = "Probability of knocking down at most x pins", 
+             col = cols, density = 0, border = TRUE)[,1]
+for(i in 0:9) {
+  j <- i + 1L
+  points(x[j], CMF(i), col = cols[j], pch = 20)
+  segments(x[j], CMF(i), x[j + 1L], CMF(j), col = cols[j], lty = 2)
+}
+abline(h = 1, lty = "dotted")
+points(x[11], 1, col = cols[11], pch = 20)
+```
+
+## Cumulative Density Functions {.build}
+
+> - Now $\Omega$ is an interval; e.g. $\Omega=\mathbb{R}$, $\Omega=\mathbb{R}_{+}$,
+$\Omega=\left(a,b\right)$, etc.
+> - $\Omega$ has an infinite number of points with zero width, so $\Pr\left(X = x\right) \downarrow 0$
+> - $\Pr\left(X\leq x\right)$ is called the Cumulative Density Function (CDF) from $\Omega$ to 
+$\left[0,1\right]$
+> - No conceptual difference between a CMF and a CDF except emphasis on
+whether $\Omega$ is discrete or continuous so we use 
+$F\left(\left.x\right|\boldsymbol{\theta}\right)$ for both
+```{r, echo = FALSE, fig.height=3, fig.width=9, small.mar = TRUE}
+curve(x + log1p(-x) * (1 - x), from = 0, to = 1, n = 1001, ylab = "Cumulative Density", ylim = c(0, 1))
+legend("topleft", legend = "x + ln(1 - x) (1 - x)", lty = 1, col = 1, bg = "lightgrey", box.lwd = NA)
+```
+
+## From CDF to a Probability Density Function (PDF)
+
+- Previous CDF over $\Omega = \left[0,1\right]$ was 
+  $F\left(x\right) = x + \ln\left(1 - x\right) \times \left(1 - x\right)$
+
+> - $\Pr\left(a<X\leq x\right)=F\left(x \mid \boldsymbol{\theta}\right)-F\left(a \mid \boldsymbol{\theta}\right)$
+as in the discrete case
+> - If $x=a+h$, $\frac{F\left(x \mid \boldsymbol{\theta}\right)-F\left(a \mid \boldsymbol{\theta}\right)}{x-a}=\frac{F\left(a+h \mid \boldsymbol{\theta}\right)-F\left(a \mid \boldsymbol{\theta}\right)}{h}$ is the slope of a line segment
+> - If we then let $h\downarrow0$, $\frac{F\left(a+h \mid \boldsymbol{\theta}\right)-F\left(a \mid \boldsymbol{\theta}\right)}{h}\rightarrow\frac{\partial F\left(a \mid \boldsymbol{\theta}\right)}{\partial a}\equiv f\left(x \mid \boldsymbol{\theta}\right)$
+is still the RATE OF CHANGE in $F\left(x \mid \boldsymbol{\theta}\right)$ at $x$
+> - The derivative of $F\left(x\right)$ with respect to $x$ is the Probability
+Density Function (PDF) & denoted $f\left(x\right)$, which is always positive because the CDF increases
+> - $f\left(x\right)$ is NOT a probability (it is a probability's slope) but is used like a PMF
+> - What is slope of $F\left(x\right) = x + \ln\left(1 - x\right) \times \left(1 - x\right)$ at $x$?
+> - [Answer](https://www.wolframalpha.com/input/?i=partial+derivative):
+  $\frac{\partial}{\partial x}F\left(x\right) = 
+  1 - 1 \times \ln\left(1 - x\right) - \frac{1 - x}{1 - x} = -\ln\left(1 - x\right) \geq 0$
+
+## Expectations of Functions of Random Variables
+
+- Let $g\left(X\right)$ be a function of $X \in \Omega$
+- The expectation of $g\left(X\right)$, if it exists (which it may not), is defined as
+
+    * Discrete $\Omega$: $\mathbb{E}g\left(X\right) = \sum_{x = \min \Omega}^{\max \Omega} 
+      g\left(x\right) f\left(x\right)$
+    * Continuous $\Omega$: $\mathbb{E}g\left(X\right) = 
+\int_{\min \Omega}^{\max \Omega} 
+g\left(x\right)f\left(x\right)dx$
+    * In general: $\mathbb{E}g\left(X\right) = \lim_{S \uparrow \infty} \frac{1}{S} \sum_{s = 1}^S
+      g\left(\widetilde{x}_s\right)$, where $\widetilde{x}_s$ is the $s$-th random draw from distribution
+      whose P{M,D}F is $f\left(x\right)$
+
+> - If $g\left(X\right)=X$, $\mathbb{E}X=\mu$ is "the" expectation 
+> - If $g\left(X\right)=\left(X-\mu\right)^{2}$, 
+  $\mathbb{E}g\left(X\right) = \mathbb{E}\left[X^2\right] - \mu^2 = \sigma^{2}$ is the variance of $X$
+
+## Continuous Bowling {.build}
+
+- What if you could knock down any REAL number of pins on $\Omega = \left[0,10\right]$?
+```{r, echo = FALSE, fig.height=5, fig.width=10}
+Fib <- function(x) {
+  sqrt_5 <- sqrt(5)
+  golden_ratio <- (1 + sqrt_5) / 2
+  xp1 <- x + 1
+  return( (golden_ratio ^ xp1 - cos(xp1 * pi) * golden_ratio ^ (-xp1)) / sqrt_5 )
+}
+
+f <- function(x, n = 10) {
+  # https://www.wolframalpha.com/input/?i=Integrate%5B%28+%28%281+%2B+Sqrt%5B5%5D%29+%2F+2%29%5E%28x+%2B+1%29+-+Cos%5B%28x+%2B+1%29+*+Pi%5D+*+%28%281+%2B+Sqrt%5B5%5D%29+%2F+2%29%5E%28-x+-+1%29+%29+%2F+Sqrt%5B5%5D%2C+%7Bx%2C+0%2C+n%7D%5D
+  sqrt_5 <- sqrt(5)
+  sqrt_5p1 <- sqrt_5 + 1
+  half_sqrt_5p1 <- sqrt_5p1 / 2
+  log_gr <- log(half_sqrt_5p1) # equals acsch(2)
+  n_pi <- n * pi
+  constant <- (3 * (-1 + half_sqrt_5p1 ^ n)) / log_gr + 
+              (sqrt_5 * (-1 + half_sqrt_5p1 ^ n)) / log_gr + 
+              (2 * (sqrt_5p1 ^ n  * log_gr - 2 ^ n * log_gr * cos(n_pi) + 
+               2 ^ n * pi * sin(n_pi))) /
+              (sqrt_5p1 ^ n * (pi ^ 2 + log_gr ^ 2))
+  constant <- constant / (5 + sqrt_5)
+  return( ifelse(x > n | x < 0, NA_real_, Fib(x) / constant) )
+}
+
+SEQ <- seq(from = 0, to = 10, length.out = 100)
+z <- sapply(SEQ, FUN = function(x1) f(x1) * f(SEQ, n = 10 - x1))
+z <- z[ , ncol(z):1]
+par(bg = "lightgrey", mar = c(0.4, 4, 3, 3) + .1)
+image(x = SEQ, y = SEQ, z = z, col = heat.colors(length(z)),
+      breaks = pmin(.Machine$double.xmax,
+                    quantile(z, na.rm = TRUE,
+                             probs = (0:length(z) + 1) / (length(z) + 1))),
+      xlab = "", ylab = "First Roll", useRaster = TRUE, las = 1, axes = FALSE)
+mtext("Second Roll", line = 2)
+axis(3, at = 0:10)
+axis(2, at = 0:10, labels = 10:0, las = 1)
+points(x = sqrt(0.5), y = 10, col = "red", pch = 20)
+abline(a = 0, b = 1, lwd = 5, col = "lightgrey")
+txt <- quantile(z, probs = c(.2, .4, .6, .8, 0.9998), na.rm = TRUE)
+legend("bottom", col = heat.colors(5), lty = 1, lwd = 5,
+       legend = round(txt, digits = 5),
+       bg = "lightgrey", title = "Probability Density")
+legend("right", legend = "Impossible Region", box.lwd = NA)
+
+arrows(x0 = pi, y0 = 0, y1 = pi, col = 4)
+text(x = pi, y = 0, labels = "Condition", col = "blue", pos = 2)
+```
+
+## Conditioning on Knocking Down $X_2 = \pi$ Pins
+
+```{r, small.mar = TRUE, fig.height = 4.25, fig.width=10}
+curve(f(x1) * f(x = pi, n = 10 - x1), from = 0, to = 10 - pi, axes = FALSE, type = "p",
+      pch = 20, n = 1001, xname = "x1", col = heat.colors(1001), ylab = "Conditional Density")
+axis(1, at = 0:7, las = 1); axis(2, at = 0, las = 1); abline(v = 0)
+```
+
+## Bayes Rule with Continuous Random Variables {.build}
+
+$$f\left(x_1 \mid n = 10 - x_2\right) = \frac{f\left(x_1 \mid n = 10\right) \times 
+                                              f\left(x_2 \mid n = 10 - x_1\right)}{f\left(x_2\right)} = \\
+                                        \frac{\hspace{1cm}f\left(x_1 \mid n = 10\right) \times 
+                                              f\left(x_2 \mid n = 10 - x_1\right)}
+                                              {\int_0^{10 - x_2}f\left(x_1 \mid n = 10\right) \times 
+                                              f\left(x_2 \mid n = 10 - x_1\right) dx_1}$$
+
+> - Each $f\left(\dots\right) > 0$ is a PDF that INTEGRATES to $1$ over its $\Theta$
+> - There are only a few simple cases where that integral is elementary, but
+```{r}
+integrate(Vectorize(function(x1) f(x1) * f(pi, n = 10 - x1)), lower = 0, upper = 10 - pi)$val
+```
+> - Since 1990, Bayesian analysis has used MCMC to randomly DRAW
+  from the distribution whose PDF is proportional to the numerator of Bayes Rule
+
+## 2014 Ebola Crisis
+
+* In 2014 there was an(other) outbreak of ebola in Africa
+* $7$ western medical professionals were infected and given an experimental drug called ZMapp.
+  Goal is to decide whether ZMapp is effective.
+* The binomial distribution is standard for evaluating the probability of $y$ successes in $n$
+  independent trials with common success probability $\theta$
+  $$\Pr\left(y \mid n, \theta\right) = {n \choose y} \theta^y \left(1 - \theta\right)^{n - y} =
+  \frac{n!}{y!\left(n - y\right)!} \theta^y \left(1 - \theta\right)^{n - y}$$
+* For OBSERVED $y$ (and $n$), we can write a log-likelihood function of $\theta$ as
+  $$\ell\left(\theta\right) = y \ln \theta + \left(n - y\right) \ln \left(1 - \theta\right)$$
+* Need a prior over the unknown surival probability $\theta \in \left[0,1\right]$
+
+## Generalized Lambda Distribution Inverse CDF
+
+There are many parameterizations of the GLD, but we use
+[Chalabi's](https://mpra.ub.uni-muenchen.de/43333/3/MPRA_paper_43333.pdf)
+$$\theta\left(p\right) = m + r \times Q\left(p \mid m = 0, r = 1, a, s\right) 
+                       = Q\left(p \mid m, r, a, s\right)$$ 
+where $m$ is the median, $r > 0$ is the inter-quartile range, $a \in \left(-1,1\right)$ is
+an asymmetry parameter, $s \in \left(0, 1\right)$ is a steepness (of the tails) parameter,
+and $p \in \left(0,1\right)$ is the argument (that can be standard uniform to do PRNG)
+
+> - The "standard" quantile function, $Q\left(p \mid m = 0, r = 1, a, s\right)$ is
+  elementary and can be bounded on neither, either, or both sides, depending on $a$ and $s$
+> - By specifying any known bounds and sufficiently many quantiles, we can numerically 
+  solve for $a$ and $s$, which also determine how many moments exist
+> - Thus, you can get far with just one easy-to-use (univariate) prior distribution
+> - But there are some other 
+  [quantile-parameterized distributions](http://www.metalogdistributions.com/publications.html)
+  of interest
+
+## Using the GLD in the Ebola Example
+
+```{r, warning = FALSE}
+rstan::expose_stan_functions("quantile_functions.stan")      # GLD_icdf() now exists in R
+source("GLD_helpers.R")                                      # defines GLD_solver_bounded()
+m <- 0.55                                                    # survival prior median
+r <- 0.26                                                    # survival prior IQR
+a_s <- GLD_solver_bounded(bounds = 0:1, median = m, IQR = r) # asymmetry and steepness
+```
+```{r, echo = FALSE, small.mar = TRUE, fig.height = 3.9, fig.width = 10}
+curve(Vectorize(GLD_icdf, "p")(p, m, r, a_s[1], a_s[2]), from = 0, to = 1, n = 1001,
+      xname = "p", xlab = expression(F(theta)), ylab = expression(theta), axes = FALSE)
+quantiles <- sapply(c(0.25, 0.5, 0.75), FUN = GLD_icdf, 
+                    median = m, IQR = r, asymmetry = a_s[1], steepness = a_s[2])
+axis(1, at = c(0, 0.25, 0.5, 0.75, 1), las = 1)
+axis(2, at = c(0, round(quantiles[1], digits = 2), m, round(quantiles[3], digits = 2), 1))
+segments(x0 = c(0.25, 0.5, 0.75), y0 = -1, y1 = quantiles, lty = "dotted", col = "red")
+segments(x0 = -1, y0 = quantiles, x1 = c(0.25, 0.5, 0.75), lty = "dotted", col = "red")
+```
+
+## Matching a Prior Predictive Distribution
+
+- The prior predictive distribution, which is the marginal distribution of
+  future data under the model irrespective of the parameters, is formed by
+
+    1. Draw $\widetilde{\theta}$ from its prior distribution (GLD in this case)
+    2. Draw $\widetilde{y}$ from its conditional distribution (binomial in this case) 
+      given the realization of $\widetilde{\theta}$
+    3. Store the realization of $\widetilde{y}$ (to inspect later)
+
+> - If your prior on the unobservable $\theta$ is plausible, then
+  the distribution of the future data will look plausible
+    
+> - When the outcome is a small-ish count, a good algorithm to draw $S$
+  times from the posterior distribution is to keep the realization
+  of $\widetilde{\theta}$ if and only if the realization of
+  $\widetilde{y}$ exactly matches the observed $y$
+
+## Example of Prior Predictive Distribution Matching
+
+```{r, message = FALSE, warning = FALSE}
+n <- 7 # number infected who take drug
+y <- 5 # number of survivors
+theta <- rep(NA_real_, times = 4000)
+s <- 1
+while (s <= length(theta)) {
+  p_ <- runif(1, min = 0, max = 1)
+  theta_ <- GLD_icdf(p_, median = m, IQR = r, asymmetry = a_s[1], steepness = a_s[2])
+  y_ <- rbinom(1, size = n, prob = theta_)
+  if (y_ == y) { # probability that y_ == y is the denominator of Bayes' Rule
+    theta[s] <- theta_
+    s <- s + 1
+  }
+}
+summary(theta) # of posterior draws
+```
+
+
+##
+
+```{stan output.var="ebola", eval = FALSE}
+#include quantile_functions.stan
+data { /* these are known and passed as a named list from R */
+  int<lower = 0> n;                          // number of observations
+  int<lower = 0, upper = n> y;               // number of survivors
+  real<lower = 0, upper = 1> m;              // prior median
+  real<lower = 0> r;                         // prior IQR
+}
+transformed data { /* these are only evaluated once and can draw randomly  */
+  vector[2] a_s = GLD_solver_bounded([0, 1], m, r); // asymmetry and steepness
+} // this function ^^^ is defined in the quantile_functions.stan file
+parameters { /* these are unknowns whose posterior distribution is sought */
+  real<lower = 0, upper = 1> p;              // CDF of survival probability
+}
+transformed parameters { /* deterministic unknowns that get stored in RAM */
+  real theta = GLD_icdf(p, m, r, a_s[1], a_s[2]); // survival probability
+} // this function ^^^ is defined in the quantile_functions.stan file
+model { /* log-kernel of Bayes' Rule that essentially returns "target" */
+  target += binomial_lpmf(y | n, theta); // log-likelihood (a function of theta)
+} // implicit: p ~ uniform(0, 1) <=> theta ~ GLD(m, r, a_s[1], a_s[2])
+generated quantities { /* other unknowns that get stored but are not needed */
+  int y_ = binomial_rng(n, theta);       // posterior predictive realization
+}
+```
+
+## Executing the Stan Program in the Previous Slide
+
+```{r, ebola, cache = TRUE, results = "hide", message = FALSE}
+library(rstan); options(mc.cores = parallel::detectCores())
+post <- stan("ebola.stan", data = list(n = 7, y = 5, m = m, r = r), seed = 12345)
+```
+```{r}
+dim(post) # glorified array: post-warmup draws x chains x saved quantities
+print(post, pars = "p", include = FALSE, digits = 3) # "same" as PPD matching
+```
+
