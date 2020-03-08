@@ -18,7 +18,7 @@ and someone will be able to help you.
 
 # Reading
 
-Before the class, please read chapter 1 of the second edition of _Statistical Rethinking_ by Richard McElreath
+Before the class, please read the first two chapters of the second edition of _Statistical Rethinking_ by Richard McElreath
 
 http://xcelab.net/rmpubs/sr2/statisticalrethinking2_chapters1and2.pdf
 
